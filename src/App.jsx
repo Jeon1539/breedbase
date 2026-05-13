@@ -76,8 +76,8 @@ export default function App() {
       </div>
 
       {/* ── Main ── */}
-      <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0, overflow:'hidden'}}>
-        {/* Topbar - fixed height, never scrolls */}
+      <div style={{flex:1, minWidth:0, height:'100%', display:'flex', flexDirection:'column', overflow:'hidden'}}>
+        {/* Topbar */}
         <div style={{flexShrink:0, padding:'12px 20px', borderBottom:'.5px solid var(--bd)', background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10}}>
           <div>
             <div className="pg-title">{title}</div>
@@ -92,8 +92,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Scrollable content area */}
-        <div style={{flex:1, overflowY:'auto', overflowX:'hidden', padding:'16px 20px', display:'flex', flexDirection:'column', gap:14}}>
+        {/* Content - 이 div만 스크롤 */}
+        <div style={{flexGrow:1, flexShrink:1, flexBasis:0, minHeight:0, overflowY:'scroll', overflowX:'hidden', padding:'16px 20px'}}>
           <Routes>
             <Route path="/"        element={<Dashboard  line={line} tick={tick} />} />
             <Route path="/cages"   element={<Cages      line={line} tick={tick} onRefetch={refetchAll} />} />
@@ -122,7 +122,7 @@ function Dashboard({ line }) {
   mice?.forEach(m => { const k = m.genotype ?? 'Unknown'; dist[k] = (dist[k]||0)+1 })
   const total = mice?.length || 1
 
-  return (<>
+  return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="stats">
       <div className="scard"><div className="sc-lbl">생존 개체</div><div className="sc-val">{alive}</div><div className="sc-note">전체 {mice?.length??0}마리</div></div>
       <div className="scard"><div className="sc-lbl">Mating cages</div><div className="sc-val">{cages?.filter(c=>c.type==='mating').length??0}</div><div className="sc-note">교배 진행 중</div></div>
@@ -162,7 +162,7 @@ function Dashboard({ line }) {
         </div>
       </div>
     </div>
-  </>)
+  </div>)
 }
 
 /* ══════════════════════════════
@@ -234,7 +234,7 @@ function Cages({ line, onRefetch }) {
   const mating  = cages?.filter(c=>c.type==='mating') ?? []
   const general = cages?.filter(c=>c.type!=='mating') ?? []
 
-  return (<>
+  return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
       <div className="sec-title">케이지 현황 ({cages?.length??0})</div>
       <button className="btn btn-primary" onClick={()=>{setTarget(null);setModal('add-cage')}}><i className="ti ti-plus"></i>케이지 추가</button>
@@ -266,7 +266,7 @@ function Cages({ line, onRefetch }) {
         onSave={async opts => { await weanLitter(opts); setModal(null); refresh() }}
       />
     )}
-  </>)
+  </div>)
 }
 
 /* ══════════════════════════════
@@ -311,7 +311,7 @@ function MicePage({ line, onRefetch }) {
     )
   }
 
-  return (<>
+  return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
       <div className="sec-title">개체 목록 ({sorted.length})</div>
       <div style={{display:'flex',gap:7}}>
@@ -373,7 +373,7 @@ function MicePage({ line, onRefetch }) {
       />
     )}
     {modal==='pedigree' && target && <PedigreeModal mouse={target} onClose={()=>setModal(null)} />}
-  </>)
+  </div>)
 }
 
 /* ══════════════════════════════
@@ -385,7 +385,7 @@ function LitterPage({ line, onRefetch }) {
   const [modal, setModal] = useState(false)
   const refresh = () => { refetch(); onRefetch() }
 
-  return (<>
+  return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
       <div className="sec-title">Litter ({lits?.length??0})</div>
       <button className="btn btn-primary" onClick={()=>setModal(true)}><i className="ti ti-plus"></i>Litter 등록</button>
@@ -417,7 +417,7 @@ function LitterPage({ line, onRefetch }) {
         onSave={async d => { await createLitter(d); setModal(false); refresh() }}
       />
     )}
-  </>)
+  </div>)
 }
 
 /* ══════════════════════════════
@@ -429,7 +429,7 @@ function TrendPage({ line }) {
   const { data: mice  } = useMice()
   const mating = cages?.filter(c=>c.type==='mating') ?? []
   if (!mating.length) return <div className="empty">교배 중인 케이지 없음</div>
-  return (<>
+  return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     {mating.map(cg => {
       const cgLits = lits?.filter(l=>l.cage_id===cg.id) ?? []
       const miceIn = mice?.filter(m=>m.cage_id===cg.id) ?? []
@@ -455,7 +455,7 @@ function TrendPage({ line }) {
         </div>
       )
     })}
-  </>)
+  </div>)
 }
 
 /* ══════════════════════════════
