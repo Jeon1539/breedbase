@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
+import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   useRealtime, useCages, useMice, useLitters, useTodayTasks,
   createCage, updateCage, deleteCage,
@@ -32,7 +32,8 @@ function Modal({ children, onClose }) {
    APP SHELL
 ══════════════════════════════ */
 export default function App() {
-  const navigate = useNavigate()
+  const navigate  = useNavigate()
+  const location  = useLocation()
   const [line, setLine] = useState('ALL')
   const [tick, setTick] = useState(0)
   const refetchAll = useCallback(() => setTick(t => t+1), [])
@@ -43,9 +44,19 @@ export default function App() {
 
   const lineFilter = l => { setLine(l); navigate('/') }
 
+  const PAGE_LABELS = {
+    '/':        { title: 'Dashboard',   sub: 'FAM19A5 KO · KI 통합 현황' },
+    '/cages':   { title: '케이지 현황', sub: '' },
+    '/mice':    { title: '개체 목록',   sub: '' },
+    '/litters': { title: 'Litter',      sub: '' },
+    '/trend':   { title: '출산 경향성', sub: '' },
+  }
+  const { title, sub } = PAGE_LABELS[location.pathname] ?? { title: 'BreedBase', sub: '' }
+
   return (
-    <div className="app">
-      <div className="sidebar">
+    <div style={{display:'flex', height:'100vh', overflow:'hidden'}}>
+      {/* ── Sidebar ── */}
+      <div style={{width:186, flexShrink:0, background:'var(--bg)', borderRight:'.5px solid var(--bd)', display:'flex', flexDirection:'column', overflowY:'auto'}}>
         <div className="logo">
           <div className="logo-name">BreedBase</div>
           <div className="logo-sub">FAM19A5 KO / KI</div>
@@ -64,16 +75,13 @@ export default function App() {
         </a>
       </div>
 
-      <div className="main">
-        <div className="topbar">
+      {/* ── Main ── */}
+      <div style={{flex:1, display:'flex', flexDirection:'column', minWidth:0, overflow:'hidden'}}>
+        {/* Topbar - fixed height, never scrolls */}
+        <div style={{flexShrink:0, padding:'12px 20px', borderBottom:'.5px solid var(--bd)', background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10}}>
           <div>
-            <Routes>
-              <Route path="/"        element={<><div className="pg-title">Dashboard</div><div className="pg-sub">FAM19A5 KO · KI 통합 현황</div></>} />
-              <Route path="/cages"   element={<div className="pg-title">케이지 현황</div>} />
-              <Route path="/mice"    element={<div className="pg-title">개체 목록</div>} />
-              <Route path="/litters" element={<div className="pg-title">Litter</div>} />
-              <Route path="/trend"   element={<div className="pg-title">출산 경향성</div>} />
-            </Routes>
+            <div className="pg-title">{title}</div>
+            {sub && <div className="pg-sub">{sub}</div>}
           </div>
           <div className="line-tabs">
             {['ALL','KO','KI','Cre'].map(l => (
@@ -84,11 +92,12 @@ export default function App() {
           </div>
         </div>
 
-        <div className="content">
+        {/* Scrollable content area */}
+        <div style={{flex:1, overflowY:'auto', overflowX:'hidden', padding:'16px 20px', display:'flex', flexDirection:'column', gap:14}}>
           <Routes>
-            <Route path="/"        element={<Dashboard line={line} tick={tick} />} />
-            <Route path="/cages"   element={<Cages     line={line} tick={tick} onRefetch={refetchAll} />} />
-            <Route path="/mice"    element={<MicePage  line={line} tick={tick} onRefetch={refetchAll} />} />
+            <Route path="/"        element={<Dashboard  line={line} tick={tick} />} />
+            <Route path="/cages"   element={<Cages      line={line} tick={tick} onRefetch={refetchAll} />} />
+            <Route path="/mice"    element={<MicePage   line={line} tick={tick} onRefetch={refetchAll} />} />
             <Route path="/litters" element={<LitterPage line={line} tick={tick} onRefetch={refetchAll} />} />
             <Route path="/trend"   element={<TrendPage  line={line} tick={tick} />} />
           </Routes>
