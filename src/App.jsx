@@ -330,19 +330,27 @@ function Cages({ line, onRefetch }) {
 
     {(modal==='add-cage'||modal==='edit-cage') && (
       <CageModal cage={target} allMice={mice??[]} onClose={()=>setModal(null)}
-        onSave={async (d, maleId, femaleId) => {
+        onSave={async (d, selectedIds, newStatus, expDate) => {
           let cageId = target?.id
+          // cage 생성/수정
+          const cageData = {
+            num: d.num, type: d.type, line: d.line,
+            notes: expDate ? `실험 시작일: ${expDate}${d.notes ? ' / '+d.notes : ''}` : d.notes
+          }
           if (target) {
-            await updateCage(target.id, {num:d.num, type:d.type, line:d.line, notes:d.notes})
+            await updateCage(target.id, cageData)
           } else {
-            const { data: nc } = await createCage({num:d.num, type:d.type, line:d.line, notes:d.notes})
+            const { data: nc } = await createCage(cageData)
             cageId = nc?.id
           }
-          // mating cage일 때 개체 배정 + 상태 변경
-          if (d.type === 'mating' && cageId) {
-            if (maleId)   await updateMouse(maleId,   { cage_id: cageId, status: 'mating중' })
-            if (femaleId) await updateMouse(femaleId, { cage_id: cageId, status: 'mating중' })
+          // 개체 배정 + 상태 변경
+          if (cageId && selectedIds.length > 0) {
+            for (const id of selectedIds) {
+              await updateMouse(id, { cage_id: cageId, status: newStatus })
+            }
           }
+          // Supabase 뷰 갱신 타이밍 보장용 딜레이
+          await new Promise(r => setTimeout(r, 400))
           setModal(null); refresh()
         }}
         onDelete={async () => { if(target){await deleteCage(target.id);setModal(null);refresh()} }}
@@ -627,72 +635,104 @@ function TrendPage({ line }) {
    MODAL COMPONENTS
 ══════════════════════════════ */
 function CageModal({ cage, allMice, onClose, onSave, onDelete }) {
-  const [num,      setNum]      = useState(cage?.num   ?? '')
-  const [type,     setType]     = useState(cage?.type  ?? 'mating')
-  const [line,     setLine]     = useState(cage?.line  ?? 'KO')
-  const [notes,    setNotes]    = useState(cage?.notes ?? '')
-  const [maleId,   setMaleId]   = useState(null)
-  const [femaleId, setFemaleId] = useState(null)
+  const [num,     setNum]     = useState(cage?.num   ?? '')
+  const [type,    setType]    = useState(cage?.type  ?? 'mating')
+  const [line,    setLine]    = useState(cage?.line  ?? 'KO')
+  const [notes,   setNotes]   = useState(cage?.notes ?? '')
+  const [expDate, setExpDate] = useState('')
+
+  // 선택된 개체 ID 목록 (mating: 최대 수컷1+암컷1, 실험중: 여러 마리)
+  const [maleId,    setMaleId]    = useState(null)
+  const [femaleId,  setFemaleId]  = useState(null)
+  const [expIds,    setExpIds]    = useState(new Set())
   const [maleQ,    setMaleQ]    = useState('')
   const [femaleQ,  setFemaleQ]  = useState('')
+  const [expQ,     setExpQ]     = useState('')
 
+  const isNew    = !cage
   const isMating = type === 'mating'
-  const isMatingEdit = cage?.type === 'mating'  // 수정 모드에서 이미 mating cage
+  const isExp    = type === 'holding'  // '실험중' cage는 holding 타입 활용 — 아래서 type 추가
 
-  // 생존 상태의 수컷/암컷 필터
-  const availMales   = allMice.filter(m => m.sex==='M' && ['생존','mating중'].includes(m.status))
-  const availFemales = allMice.filter(m => m.sex==='F' && ['생존','mating중'].includes(m.status))
+  // cage type 옵션에 실험중 추가
+  const CAGE_TYPES = [
+    { value:'mating',  label:'교배 cage' },
+    { value:'male',    label:'수컷 cage' },
+    { value:'female',  label:'암컷 cage' },
+    { value:'exp',     label:'실험중 cage' },
+    { value:'holding', label:'holding' },
+  ]
 
-  const filtMales   = availMales.filter(m =>
-    !maleQ || m.mid.toLowerCase().includes(maleQ.toLowerCase()) ||
-    (m.cage_num??'').toLowerCase().includes(maleQ.toLowerCase())
-  )
-  const filtFemales = availFemales.filter(m =>
-    !femaleQ || m.mid.toLowerCase().includes(femaleQ.toLowerCase()) ||
-    (m.cage_num??'').toLowerCase().includes(femaleQ.toLowerCase())
-  )
+  const availMales   = allMice.filter(m => m.sex==='M' && ['생존','mating중','실험중'].includes(m.status))
+  const availFemales = allMice.filter(m => m.sex==='F' && ['생존','mating중','실험중'].includes(m.status))
+  const availAll     = allMice.filter(m => ['생존','mating중','실험중'].includes(m.status))
 
-  const selectedMale   = allMice.find(m => m.id === maleId)
-  const selectedFemale = allMice.find(m => m.id === femaleId)
+  const filtMales   = availMales.filter(m   => !maleQ   || m.mid.includes(maleQ)   || (m.cage_num??'').includes(maleQ))
+  const filtFemales = availFemales.filter(m => !femaleQ || m.mid.includes(femaleQ) || (m.cage_num??'').includes(femaleQ))
+  const filtExp     = availAll.filter(m     => !expQ    || m.mid.includes(expQ)    || (m.cage_num??'').includes(expQ))
 
-  const MiceSelector = ({ sex, query, setQuery, selectedId, setSelectedId, list }) => (
-    <div style={{border:'.5px solid var(--bd2)',borderRadius:8,overflow:'hidden'}}>
-      <div style={{padding:'6px 8px',background:'var(--bg2)',borderBottom:'.5px solid var(--bd)',fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.05em',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-        <span>{sex==='M'?'♂ 수컷':'♀ 암컷'} 선택</span>
-        {selectedId && <span style={{color:'var(--info-tx)',fontWeight:500}}>{allMice.find(m=>m.id===selectedId)?.mid} 선택됨</span>}
+  const toggleExp = id => setExpIds(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n })
+
+  // 개체 선택 행 컴포넌트
+  const MouseRow = ({ m, selected, onToggle }) => (
+    <div onClick={onToggle}
+      style={{padding:'7px 12px',cursor:'pointer',background:selected?'var(--info-bg)':'',borderBottom:'.5px solid var(--bd)',display:'flex',alignItems:'center',gap:8,fontSize:11,userSelect:'none'}}
+    >
+      <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${selected?'var(--info-tx)':'var(--bd2)'}`,background:selected?'var(--info-tx)':'',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        {selected && <i className="ti ti-check" style={{fontSize:10,color:'#fff'}}></i>}
       </div>
-      <div style={{padding:'6px 8px',borderBottom:'.5px solid var(--bd)'}}>
-        <input className="finput" placeholder="ID 또는 케이지 검색..." value={query} onChange={e=>setQuery(e.target.value)} style={{fontSize:11}} />
-      </div>
-      <div style={{maxHeight:140,overflowY:'auto'}}>
-        {list.length === 0
-          ? <div style={{padding:'10px 12px',fontSize:11,color:'var(--t3)'}}>검색 결과 없음</div>
-          : list.slice(0,20).map(m => (
-            <div key={m.id}
-              onClick={() => setSelectedId(selectedId===m.id ? null : m.id)}
-              style={{padding:'6px 12px',cursor:'pointer',background:selectedId===m.id?'var(--info-bg)':'',borderBottom:'.5px solid var(--bd)',display:'flex',alignItems:'center',gap:8,fontSize:11}}
-            >
-              <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${selectedId===m.id?'var(--info-tx)':'var(--bd2)'}`,background:selectedId===m.id?'var(--info-tx)':'',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                {selectedId===m.id && <i className="ti ti-check" style={{fontSize:10,color:'#fff'}}></i>}
-              </div>
-              <span className="mono" style={{fontWeight:500,color:'var(--t1)'}}>{m.mid}</span>
-              <span className={`bdg ${GC(m.genotype)}`} style={{fontSize:9}}>{m.genotype??'?'}</span>
-              <span style={{fontSize:10,color:'var(--t3)',marginLeft:'auto'}}>{m.cage_num??'미배정'}</span>
-            </div>
-          ))
-        }
-      </div>
+      <span className="mono" style={{fontWeight:500,color:'var(--t1)',minWidth:50}}>{m.mid}</span>
+      <span>{m.sex==='M'?'♂':'♀'}</span>
+      <span className={`bdg ${GC(m.genotype)}`} style={{fontSize:9}}>{m.genotype??'?'}</span>
+      <span className={`bdg ${SC(m.status)}`} style={{fontSize:9}}>{m.status}</span>
+      <span style={{fontSize:10,color:'var(--t3)',marginLeft:'auto'}}>{m.cage_num??'미배정'}</span>
     </div>
   )
+
+  const SearchBox = ({ value, onChange, placeholder }) => (
+    <div style={{padding:'6px 8px',borderBottom:'.5px solid var(--bd)'}}>
+      <input className="finput" placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)} style={{fontSize:11}} />
+    </div>
+  )
+
+  const SectionHeader = ({ title, subtitle }) => (
+    <div style={{padding:'6px 10px',background:'var(--bg2)',borderBottom:'.5px solid var(--bd)',fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.05em',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      <span>{title}</span>
+      {subtitle && <span style={{color:'var(--info-tx)',fontWeight:500}}>{subtitle}</span>}
+    </div>
+  )
+
+  const handleSave = () => {
+    // type이 'exp'이면 실제 DB에는 'holding'으로 저장하고 notes에 표시
+    const actualType = type === 'exp' ? 'holding' : type
+    const finalNotes = type === 'exp'
+      ? `[실험중]${expDate ? ' 시작일: '+expDate : ''}${notes ? ' / '+notes : ''}`
+      : notes
+
+    let selectedIds = []
+    let newStatus   = '생존'
+
+    if (type === 'mating' && isNew) {
+      if (maleId)   selectedIds.push(maleId)
+      if (femaleId) selectedIds.push(femaleId)
+      newStatus = 'mating중'
+    } else if (type === 'exp' && isNew) {
+      selectedIds = [...expIds]
+      newStatus   = '실험중'
+    }
+
+    onSave({ num, type: actualType, line, notes: finalNotes }, selectedIds, newStatus, null)
+  }
 
   return (
     <Modal onClose={onClose}>
       <div className="modal-title">{cage ? `케이지 수정 — ${cage.num}` : '새 케이지 추가'}</div>
-      <div className="fgrow" style={{marginBottom: isMating && !cage ? 12 : 0}}>
+
+      {/* 기본 정보 */}
+      <div className="fgrow">
         <div className="fg"><div className="flbl">케이지 번호</div><input className="finput" value={num} onChange={e=>setNum(e.target.value)} placeholder="KO-M02" /></div>
         <div className="fg"><div className="flbl">종류</div>
           <select className="finput" value={type} onChange={e=>setType(e.target.value)}>
-            <option value="mating">교배 cage</option><option value="male">수컷 cage</option><option value="female">암컷 cage</option><option value="holding">holding</option>
+            {CAGE_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
         <div className="fg"><div className="flbl">Line</div>
@@ -703,28 +743,78 @@ function CageModal({ cage, allMice, onClose, onSave, onDelete }) {
         <div className="fg"><div className="flbl">메모</div><input className="finput" value={notes} onChange={e=>setNotes(e.target.value)} /></div>
       </div>
 
-      {/* mating cage 신규 생성 시에만 개체 선택 */}
-      {isMating && !cage && (<>
+      {/* ── mating cage 개체 선택 ── */}
+      {isMating && isNew && (<>
         <div className="divider"></div>
-        <div style={{fontSize:11,fontWeight:500,color:'var(--t1)',marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:500,marginBottom:8}}>
           <i className="ti ti-heart" style={{marginRight:6,color:'var(--info-tx)'}}></i>
-          교배 개체 선택 <span style={{fontSize:10,color:'var(--t3)',fontWeight:400}}>(선택 시 상태가 자동으로 mating중으로 변경됩니다)</span>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          <MiceSelector sex="M" query={maleQ}   setQuery={setMaleQ}   selectedId={maleId}   setSelectedId={setMaleId}   list={filtMales} />
-          <MiceSelector sex="F" query={femaleQ} setQuery={setFemaleQ} selectedId={femaleId} setSelectedId={setFemaleId} list={filtFemales} />
+          교배 개체 선택
+          <span style={{fontSize:10,color:'var(--t3)',fontWeight:400,marginLeft:6}}>저장 시 상태가 mating중으로 자동 변경됩니다</span>
         </div>
         {(maleId || femaleId) && (
-          <div style={{marginTop:10,padding:'8px 10px',background:'var(--info-bg)',borderRadius:8,fontSize:11,color:'var(--info-tx)'}}>
-            선택된 교배쌍: {maleId ? `♂ ${selectedMale?.mid}` : '♂ 미선택'} × {femaleId ? `♀ ${selectedFemale?.mid}` : '♀ 미선택'}
+          <div style={{padding:'7px 10px',background:'var(--info-bg)',borderRadius:8,fontSize:11,color:'var(--info-tx)',marginBottom:8}}>
+            {maleId ? `♂ ${allMice.find(m=>m.id===maleId)?.mid}` : '♂ 미선택'} × {femaleId ? `♀ ${allMice.find(m=>m.id===femaleId)?.mid}` : '♀ 미선택'}
           </div>
         )}
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {/* 수컷 */}
+          <div style={{border:'.5px solid var(--bd2)',borderRadius:8,overflow:'hidden'}}>
+            <SectionHeader title="♂ 수컷" subtitle={maleId ? allMice.find(m=>m.id===maleId)?.mid+' 선택됨' : ''} />
+            <SearchBox value={maleQ} onChange={setMaleQ} placeholder="ID 또는 케이지 검색..." />
+            <div style={{maxHeight:130,overflowY:'auto'}}>
+              {filtMales.length === 0
+                ? <div style={{padding:'10px 12px',fontSize:11,color:'var(--t3)'}}>검색 결과 없음</div>
+                : filtMales.slice(0,30).map(m => <MouseRow key={m.id} m={m} selected={maleId===m.id} onToggle={()=>setMaleId(maleId===m.id?null:m.id)} />)
+              }
+            </div>
+          </div>
+          {/* 암컷 */}
+          <div style={{border:'.5px solid var(--bd2)',borderRadius:8,overflow:'hidden'}}>
+            <SectionHeader title="♀ 암컷" subtitle={femaleId ? allMice.find(m=>m.id===femaleId)?.mid+' 선택됨' : ''} />
+            <SearchBox value={femaleQ} onChange={setFemaleQ} placeholder="ID 또는 케이지 검색..." />
+            <div style={{maxHeight:130,overflowY:'auto'}}>
+              {filtFemales.length === 0
+                ? <div style={{padding:'10px 12px',fontSize:11,color:'var(--t3)'}}>검색 결과 없음</div>
+                : filtFemales.slice(0,30).map(m => <MouseRow key={m.id} m={m} selected={femaleId===m.id} onToggle={()=>setFemaleId(femaleId===m.id?null:m.id)} />)
+              }
+            </div>
+          </div>
+        </div>
+      </>)}
+
+      {/* ── 실험중 cage 개체 선택 ── */}
+      {type === 'exp' && isNew && (<>
+        <div className="divider"></div>
+        <div style={{fontSize:11,fontWeight:500,marginBottom:8}}>
+          <i className="ti ti-flask" style={{marginRight:6,color:'var(--warn-tx)'}}></i>
+          실험 개체 선택
+          <span style={{fontSize:10,color:'var(--t3)',fontWeight:400,marginLeft:6}}>저장 시 상태가 실험중으로 자동 변경됩니다</span>
+        </div>
+        <div className="fg" style={{marginBottom:8}}>
+          <div className="flbl">실험 시작일</div>
+          <input className="finput" type="date" value={expDate} onChange={e=>setExpDate(e.target.value)} style={{width:160}} />
+        </div>
+        {expIds.size > 0 && (
+          <div style={{padding:'7px 10px',background:'var(--warn-bg)',borderRadius:8,fontSize:11,color:'var(--warn-tx)',marginBottom:8}}>
+            {expIds.size}마리 선택됨: {[...expIds].map(id=>allMice.find(m=>m.id===id)?.mid).filter(Boolean).join(', ')}
+          </div>
+        )}
+        <div style={{border:'.5px solid var(--bd2)',borderRadius:8,overflow:'hidden'}}>
+          <SectionHeader title={`개체 선택 (${expIds.size}마리 선택됨)`} />
+          <SearchBox value={expQ} onChange={setExpQ} placeholder="ID 또는 케이지 검색..." />
+          <div style={{maxHeight:200,overflowY:'auto'}}>
+            {filtExp.length === 0
+              ? <div style={{padding:'10px 12px',fontSize:11,color:'var(--t3)'}}>검색 결과 없음</div>
+              : filtExp.slice(0,50).map(m => <MouseRow key={m.id} m={m} selected={expIds.has(m.id)} onToggle={()=>toggleExp(m.id)} />)
+            }
+          </div>
+        </div>
       </>)}
 
       <div className="fact" style={{marginTop:14}}>
         {cage && <button className="btn btn-danger" onClick={onDelete}>삭제</button>}
         <button className="btn" onClick={onClose}>취소</button>
-        <button className="btn btn-primary" onClick={()=>onSave({num,type,line,notes}, maleId, femaleId)}>저장</button>
+        <button className="btn btn-primary" onClick={handleSave}>저장</button>
       </div>
     </Modal>
   )
