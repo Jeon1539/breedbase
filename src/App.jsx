@@ -553,23 +553,29 @@ function MicePage({ line, onRefetch }) {
    LITTERS
 ══════════════════════════════ */
 function LitterPage({ line, onRefetch }) {
-  const { data: lits, refetch } = useLitters(line==='ALL'?undefined:line)
+  const { data: lits,  refetch } = useLitters(line==='ALL'?undefined:line)
   const { data: cages } = useCages()
-  const [modal, setModal] = useState(false)
+  const { data: mice  } = useMice()
+  const [modal,  setModal]  = useState(null)   // null | 'add' | litter_id(weaning)
+  const [target, setTarget] = useState(null)
   const refresh = () => { refetch(); onRefetch() }
 
   return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
       <div className="sec-title">Litter ({lits?.length??0})</div>
-      <button className="btn btn-primary" onClick={()=>setModal(true)}><i className="ti ti-plus"></i>Litter 등록</button>
+      <button className="btn btn-primary" onClick={()=>setModal('add')}><i className="ti ti-plus"></i>Litter 등록</button>
     </div>
     <div className="tbl-wrap">
       <table>
-        <thead><tr><th>Line</th><th>Mating cage</th><th>출생일</th><th>Pup 수</th><th>Weaning 예정</th><th>D-day</th><th>상태</th></tr></thead>
+        <thead><tr>
+          <th>Line</th><th>Mating cage</th><th>출생일</th><th>Pup 수</th>
+          <th>Weaning 예정</th><th>D-day</th><th>상태</th><th></th>
+        </tr></thead>
         <tbody>
           {lits?.map(l => {
             const wDate = addDays(l.birth_date, 21)
-            const wd = diffDays(wDate)
+            const wd    = diffDays(wDate)
+            const cg    = cages?.find(c => c.id === l.cage_id)
             return (
               <tr key={l.id}>
                 <td><span className={`bdg b-${l.line}`}>{l.line}</span></td>
@@ -577,17 +583,40 @@ function LitterPage({ line, onRefetch }) {
                 <td><span className="mono">{fmtD(l.birth_date)}</span></td>
                 <td>{l.pup_count}</td>
                 <td><span className={`bdg ${wd<0?'b-alive':wd<=3?'b-het':'b-unk'}`}>{fmtD(wDate)}</span></td>
-                <td style={{color:wd<0?'var(--suc-tx)':wd<=3?'var(--warn-tx)':'var(--t3)',fontFamily:'monospace',fontSize:10}}>{wd<0?'D'+wd:'D+'+wd}</td>
-                <td>{l.weaned ? <span className="bdg b-alive">완료</span> : <span className="bdg b-het">진행 중</span>}</td>
+                <td style={{color:wd<0?'var(--suc-tx)':wd<=3?'var(--warn-tx)':'var(--t3)',fontFamily:'monospace',fontSize:10}}>
+                  {wd<0?'D'+wd:'D+'+wd}
+                </td>
+                <td>{l.weaned
+                  ? <span className="bdg b-alive">완료</span>
+                  : <span className="bdg b-het">진행 중</span>}
+                </td>
+                <td>
+                  {!l.weaned && (
+                    <button className="btn btn-primary btn-sm"
+                      onClick={()=>{ setTarget({litter:l, cage:cg}); setModal('wean') }}>
+                      <i className="ti ti-scissors"></i>Weaning
+                    </button>
+                  )}
+                </td>
               </tr>
             )
           })}
         </tbody>
       </table>
     </div>
-    {modal && (
-      <LitterModal cages={cages?.filter(c=>c.type==='mating')??[]} onClose={()=>setModal(false)}
-        onSave={async d => { await createLitter(d); setModal(false); refresh() }}
+
+    {modal==='add' && (
+      <LitterModal cages={cages?.filter(c=>c.type==='mating')??[]} onClose={()=>setModal(null)}
+        onSave={async d => { await createLitter(d); setModal(null); refresh() }}
+      />
+    )}
+    {modal==='wean' && target && (
+      <WeanModal
+        cage={target.cage}
+        litter={target.litter}
+        mice={mice??[]}
+        onClose={()=>setModal(null)}
+        onSave={async opts => { await weanLitter(opts); setModal(null); refresh() }}
       />
     )}
   </div>)
