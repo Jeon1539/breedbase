@@ -17,12 +17,8 @@
   --warn-bg:#261a08; --warn-tx:#fb923c; --warn-bd:#7a4a10;
   --err-bg:#2a1010; --err-tx:#f87171; --err-bd:#7a2020;
 }}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:var(--t1);background:var(--bg3);height:100vh;overflow:hidden}
-#root{height:100vh}
-.app{display:flex;height:100vh;overflow:hidden}
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.content{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px}
-.sidebar{width:186px;flex-shrink:0;background:var(--bg);border-right:.5px solid var(--bd);display:flex;flex-direction:column}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:var(--t1);background:var(--bg3);margin:0;padding:0}
+#root{height:100vh;overflow:hidden}
 .logo{padding:14px 16px 12px;border-bottom:.5px solid var(--bd)}
 .logo-name{font-size:14px;font-weight:500}
 .logo-sub{font-size:10px;color:var(--t3);margin-top:2px}
