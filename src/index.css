@@ -66,7 +66,7 @@ tr:hover td{background:var(--bg2)}
 .b-wt{background:var(--suc-bg);color:var(--suc-tx)} .b-het{background:var(--warn-bg);color:var(--warn-tx)} .b-hom{background:var(--err-bg);color:var(--err-tx)} .b-unk{background:var(--bg2);color:var(--t3);border:.5px solid var(--bd)}
 .b-alive{background:var(--suc-bg);color:var(--suc-tx)} .b-mating{background:var(--info-bg);color:var(--info-tx)} .b-exp{background:var(--warn-bg);color:var(--warn-tx)} .b-euth{background:var(--bg2);color:var(--t3)} .b-dead{background:var(--err-bg);color:var(--err-tx)}
 .b-KO{background:var(--info-bg);color:var(--info-tx)} .b-KI{background:var(--warn-bg);color:var(--warn-tx)} .b-Cre{background:var(--suc-bg);color:var(--suc-tx)}
-.b-type-mating{background:var(--info-bg);color:var(--info-tx)} .b-type-male{background:var(--suc-bg);color:var(--suc-tx)} .b-type-female{background:var(--err-bg);color:var(--err-tx)} .b-type-holding{background:var(--bg2);color:var(--t2);border:.5px solid var(--bd)}
+.b-type-mating{background:var(--info-bg);color:var(--info-tx)} .b-type-male{background:var(--suc-bg);color:var(--suc-tx)} .b-type-female{background:var(--err-bg);color:var(--err-tx)} .b-type-holding{background:var(--bg2);color:var(--t2);border:.5px solid var(--bd)} .b-type-exp{background:var(--warn-bg);color:var(--warn-tx)}
 .two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .sec-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .sec-title{font-size:10px;font-weight:500;color:var(--t2);text-transform:uppercase;letter-spacing:.06em}
@@ -86,6 +86,7 @@ tr:hover td{background:var(--bg2)}
 .cage-card.type-male{border-top:3px solid var(--suc-tx)}
 .cage-card.type-female{border-top:3px solid var(--err-tx)}
 .cage-card.type-holding{border-top:3px solid var(--bd2)}
+.cage-card.type-exp{border-top:3px solid var(--warn-tx)}
 .cage-num{font-size:13px;font-weight:500}
 .cage-mice{margin-top:9px;display:flex;flex-direction:column;gap:3px}
 .cmrow{display:flex;align-items:center;gap:5px;padding:4px 7px;background:var(--bg2);border-radius:7px;font-size:11px}
