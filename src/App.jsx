@@ -172,11 +172,75 @@ function Cages({ line, onRefetch }) {
   const { data: cages, refetch } = useCages(line==='ALL'?undefined:line)
   const { data: mice  } = useMice()
   const { data: lits  } = useLitters()
-  const [modal, setModal]     = useState(null)
-  const [target, setTarget]   = useState(null)
+  const [modal, setModal]         = useState(null)
+  const [target, setTarget]       = useState(null)
   const [targetLit, setTargetLit] = useState(null)
+  const [selected, setSelected]   = useState(new Set())
   const refresh = () => { refetch(); onRefetch() }
   const miceIn = cid => mice?.filter(m => m.cage_id===cid) ?? []
+
+  const allIds = cages?.map(c=>c.id) ?? []
+  const allChecked = allIds.length > 0 && allIds.every(id => selected.has(id))
+  const toggleAll = () => setSelected(allChecked ? new Set() : new Set(allIds))
+  const toggleOne = id => setSelected(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n })
+
+  // 프린트
+  const handlePrint = () => {
+    const sel = cages?.filter(c => selected.has(c.id)) ?? []
+    if (!sel.length) { alert('프린트할 케이지를 선택하세요'); return }
+    const win = window.open('', '_blank')
+    win.document.write(`<html><head><title>케이지 현황</title>
+    <style>
+      body{font-family:sans-serif;font-size:12px;padding:20px}
+      h2{font-size:16px;margin-bottom:16px}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+      .card{border:1px solid #ccc;border-radius:8px;padding:12px;break-inside:avoid}
+      .card-title{font-size:14px;font-weight:600;margin-bottom:4px}
+      .badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;border:1px solid #ccc;margin-right:4px}
+      .row{display:flex;gap:6px;align-items:center;padding:3px 6px;background:#f5f5f3;border-radius:4px;margin-top:3px;font-size:11px}
+      .section{font-size:9px;color:#999;text-transform:uppercase;margin:8px 0 4px}
+      @media print{.grid{grid-template-columns:repeat(3,1fr)}}
+    </style></head><body>
+    <h2>케이지 현황 — ${new Date().toLocaleDateString('ko-KR')} (${sel.length}개 선택)</h2>
+    <div class="grid">
+    ${sel.map(cg => {
+      const ml = miceIn(cg.id)
+      const lit = lits?.find(l => l.id===cg.litter_id)
+      return `<div class="card">
+        <div class="card-title">${cg.num}</div>
+        <div><span class="badge">${TL(cg.type)}</span><span class="badge">${cg.line}</span></div>
+        ${lit ? `<div style="font-size:10px;color:#666;margin-top:4px">Litter 출생: ${fmtD(lit.birth_date)}</div>` : ''}
+        ${cg.notes ? `<div style="font-size:10px;color:#666">${cg.notes}</div>` : ''}
+        <div class="section">수용 개체 (${ml.length}마리)</div>
+        ${ml.length ? ml.map(m=>`<div class="row"><b>${m.mid}</b> ${m.sex==='M'?'♂':'♀'} ${m.genotype??'?'} ${m.status}</div>`).join('') : '<div style="font-size:10px;color:#999">개체 없음</div>'}
+      </div>`
+    }).join('')}
+    </div>
+    <script>window.onload=()=>{window.print();window.close()}<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
+  // 엑셀 추출
+  const handleExcel = () => {
+    const sel = cages?.filter(c => selected.has(c.id)) ?? []
+    if (!sel.length) { alert('추출할 케이지를 선택하세요'); return }
+    const rows = [['케이지번호','종류','Line','메모','개체수','개체목록(ID/성별/Genotype/상태)']]
+    sel.forEach(cg => {
+      const ml = miceIn(cg.id)
+      rows.push([
+        cg.num, TL(cg.type), cg.line, cg.notes??'',
+        ml.length,
+        ml.map(m=>`${m.mid}/${m.sex==='M'?'♂':'♀'}/${m.genotype??'?'}/${m.status}`).join(' | ')
+      ])
+    })
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `케이지현황_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+  }
 
   const CageCard = ({ cg }) => {
     const ml  = miceIn(cg.id)
@@ -192,14 +256,19 @@ function Cages({ line, onRefetch }) {
         if (dad||mom) parentInfo = { dad, mom, cageNum: cages?.find(c=>c.id===plit.cage_id)?.num }
       }
     }
+    const isSelected = selected.has(cg.id)
     return (
-      <div className={`cage-card type-${cg.type}`}>
+      <div className={`cage-card type-${cg.type}`} style={{outline: isSelected ? '2px solid var(--info-tx)' : 'none', outlineOffset:2}}>
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:4}}>
-          <div>
-            <div className="cage-num">{cg.num}</div>
-            <div style={{display:'flex',alignItems:'center',gap:5,marginTop:4}}>
-              <span className={`bdg b-type-${cg.type}`} style={{fontSize:9}}>{TL(cg.type)}</span>
-              <span className={`bdg b-${cg.line}`} style={{fontSize:9}}>{cg.line}</span>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <input type="checkbox" checked={isSelected} onChange={()=>toggleOne(cg.id)}
+              style={{width:15,height:15,accentColor:'var(--info-tx)',cursor:'pointer',flexShrink:0}} />
+            <div>
+              <div className="cage-num">{cg.num}</div>
+              <div style={{display:'flex',alignItems:'center',gap:5,marginTop:4}}>
+                <span className={`bdg b-type-${cg.type}`} style={{fontSize:9}}>{TL(cg.type)}</span>
+                <span className={`bdg b-${cg.line}`} style={{fontSize:9}}>{cg.line}</span>
+              </div>
             </div>
           </div>
           <button className="btn btn-sm" onClick={()=>{setTarget(cg);setModal('edit-cage')}}><i className="ti ti-edit"></i></button>
@@ -236,8 +305,19 @@ function Cages({ line, onRefetch }) {
 
   return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
-      <div className="sec-title">케이지 현황 ({cages?.length??0})</div>
-      <button className="btn btn-primary" onClick={()=>{setTarget(null);setModal('add-cage')}}><i className="ti ti-plus"></i>케이지 추가</button>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div className="sec-title">케이지 현황 ({cages?.length??0})</div>
+        <label style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'var(--t2)',cursor:'pointer'}}>
+          <input type="checkbox" checked={allChecked} onChange={toggleAll} style={{accentColor:'var(--info-tx)'}} />
+          전체 선택
+        </label>
+        {selected.size > 0 && <span style={{fontSize:11,color:'var(--info-tx)'}}>{selected.size}개 선택됨</span>}
+      </div>
+      <div style={{display:'flex',gap:7}}>
+        <button className="btn" onClick={handlePrint}><i className="ti ti-printer"></i>프린트</button>
+        <button className="btn" onClick={handleExcel}><i className="ti ti-file-spreadsheet"></i>Excel</button>
+        <button className="btn btn-primary" onClick={()=>{setTarget(null);setModal('add-cage')}}><i className="ti ti-plus"></i>케이지 추가</button>
+      </div>
     </div>
     <div className="tbl-wrap">
       <div className="tbl-head"><span className="tbl-title" style={{color:'var(--info-tx)'}}><i className="ti ti-heart" style={{fontSize:12,marginRight:4}}></i>교배 Cage ({mating.length})</span></div>
@@ -249,8 +329,22 @@ function Cages({ line, onRefetch }) {
     </div>
 
     {(modal==='add-cage'||modal==='edit-cage') && (
-      <CageModal cage={target} onClose={()=>setModal(null)}
-        onSave={async d => { target ? await updateCage(target.id,d) : await createCage(d); setModal(null); refresh() }}
+      <CageModal cage={target} allMice={mice??[]} onClose={()=>setModal(null)}
+        onSave={async (d, maleId, femaleId) => {
+          let cageId = target?.id
+          if (target) {
+            await updateCage(target.id, {num:d.num, type:d.type, line:d.line, notes:d.notes})
+          } else {
+            const { data: nc } = await createCage({num:d.num, type:d.type, line:d.line, notes:d.notes})
+            cageId = nc?.id
+          }
+          // mating cage일 때 개체 배정 + 상태 변경
+          if (d.type === 'mating' && cageId) {
+            if (maleId)   await updateMouse(maleId,   { cage_id: cageId, status: 'mating중' })
+            if (femaleId) await updateMouse(femaleId, { cage_id: cageId, status: 'mating중' })
+          }
+          setModal(null); refresh()
+        }}
         onDelete={async () => { if(target){await deleteCage(target.id);setModal(null);refresh()} }}
       />
     )}
@@ -279,6 +373,7 @@ function MicePage({ line, onRefetch }) {
   const [sort, setSort]     = useState(null)
   const [modal, setModal]   = useState(null)
   const [target, setTarget] = useState(null)
+  const [selected, setSelected] = useState(new Set())
   const refresh = () => { refetch(); onRefetch() }
 
   const sorted = [...(mice??[])].sort((a,b) => {
@@ -287,6 +382,63 @@ function MicePage({ line, onRefetch }) {
     if (sort.col==='cage_id') { av=a.cage_num??''; bv=b.cage_num??'' }
     return av<bv?-sort.dir:av>bv?sort.dir:0
   }).filter(m => !search || JSON.stringify(m).toLowerCase().includes(search.toLowerCase()))
+
+  const allChecked = sorted.length > 0 && sorted.every(m => selected.has(m.id))
+  const toggleAll = () => setSelected(allChecked ? new Set() : new Set(sorted.map(m=>m.id)))
+  const toggleOne = id => setSelected(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n })
+
+  const selMice = sorted.filter(m => selected.has(m.id))
+
+  // 프린트
+  const handlePrint = () => {
+    if (!selMice.length) { alert('프린트할 개체를 선택하세요'); return }
+    const win = window.open('', '_blank')
+    win.document.write(`<html><head><title>개체 목록</title>
+    <style>
+      body{font-family:sans-serif;font-size:12px;padding:20px}
+      h2{font-size:16px;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;font-size:11px}
+      th{background:#f0f0ee;padding:7px 10px;text-align:left;border-bottom:1px solid #ddd;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+      td{padding:7px 10px;border-bottom:1px solid #eee}
+      tr:last-child td{border-bottom:none}
+    </style></head><body>
+    <h2>개체 목록 — ${new Date().toLocaleDateString('ko-KR')} (${selMice.length}마리 선택)</h2>
+    <table>
+      <thead><tr><th>ID</th><th>성별</th><th>Line</th><th>Generation</th><th>DOB</th><th>Genotype</th><th>상태</th><th>케이지</th><th>메모</th></tr></thead>
+      <tbody>
+      ${selMice.map(m=>`<tr>
+        <td><b>${m.mid}</b></td>
+        <td>${m.sex==='M'?'♂':'♀'}</td>
+        <td>${m.line}</td>
+        <td>${m.generation??'—'}</td>
+        <td>${fmtD(m.dob)}</td>
+        <td>${m.genotype??'미입력'}</td>
+        <td>${m.status}</td>
+        <td>${m.cage_num??'—'}</td>
+        <td>${m.notes??''}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+    <script>window.onload=()=>{window.print();window.close()}<\/script>
+    </body></html>`)
+    win.document.close()
+  }
+
+  // 엑셀 추출
+  const handleExcel = () => {
+    if (!selMice.length) { alert('추출할 개체를 선택하세요'); return }
+    const rows = [['ID','성별','Line','Generation','DOB','Genotype','상태','케이지','메모']]
+    selMice.forEach(m => rows.push([
+      m.mid, m.sex==='M'?'수컷':'암컷', m.line, m.generation??'',
+      m.dob??'', m.genotype??'', m.status, m.cage_num??'', m.notes??''
+    ]))
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n')
+    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'})
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `개체목록_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+  }
 
   const Th = ({ label, col }) => {
     const cls = sort?.col===col ? (sort.dir===1?'sort-asc':'sort-desc') : ''
@@ -313,16 +465,25 @@ function MicePage({ line, onRefetch }) {
 
   return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
-      <div className="sec-title">개체 목록 ({sorted.length})</div>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div className="sec-title">개체 목록 ({sorted.length})</div>
+        {selected.size > 0 && <span style={{fontSize:11,color:'var(--info-tx)'}}>{selected.size}마리 선택됨</span>}
+      </div>
       <div style={{display:'flex',gap:7}}>
         <input style={{background:'var(--bg2)',border:'.5px solid var(--bd)',borderRadius:7,padding:'4px 9px',fontSize:11,color:'var(--t1)',outline:'none',width:140}}
           placeholder="ID / 케이지 검색..." value={search} onChange={e=>setSearch(e.target.value)} />
+        <button className="btn" onClick={handlePrint}><i className="ti ti-printer"></i>프린트</button>
+        <button className="btn" onClick={handleExcel}><i className="ti ti-file-spreadsheet"></i>Excel</button>
         <button className="btn btn-primary" onClick={()=>{setTarget(null);setModal('add-mouse')}}><i className="ti ti-plus"></i>개체 등록</button>
       </div>
     </div>
     <div className="tbl-wrap">
       <table>
         <thead><tr>
+          <th style={{width:36}}>
+            <input type="checkbox" checked={allChecked} onChange={toggleAll}
+              style={{accentColor:'var(--info-tx)',cursor:'pointer'}} />
+          </th>
           <Th label="ID"         col="mid" />
           <Th label="성별"       col="sex" />
           <Th label="Line"       col="line" />
@@ -335,7 +496,11 @@ function MicePage({ line, onRefetch }) {
         </tr></thead>
         <tbody>
           {sorted.map(m => (
-            <tr key={m.id}>
+            <tr key={m.id} style={{background: selected.has(m.id) ? 'var(--info-bg)' : ''}}>
+              <td>
+                <input type="checkbox" checked={selected.has(m.id)} onChange={()=>toggleOne(m.id)}
+                  style={{accentColor:'var(--info-tx)',cursor:'pointer'}} />
+              </td>
               <td><span className="mono" style={{color:'var(--t1)'}}>{m.mid}</span></td>
               <td>{m.sex==='M'?'♂':'♀'}</td>
               <td><span className={`bdg b-${m.line}`}>{m.line}</span></td>
@@ -461,15 +626,69 @@ function TrendPage({ line }) {
 /* ══════════════════════════════
    MODAL COMPONENTS
 ══════════════════════════════ */
-function CageModal({ cage, onClose, onSave, onDelete }) {
-  const [num,   setNum]   = useState(cage?.num   ?? '')
-  const [type,  setType]  = useState(cage?.type  ?? 'mating')
-  const [line,  setLine]  = useState(cage?.line  ?? 'KO')
-  const [notes, setNotes] = useState(cage?.notes ?? '')
+function CageModal({ cage, allMice, onClose, onSave, onDelete }) {
+  const [num,      setNum]      = useState(cage?.num   ?? '')
+  const [type,     setType]     = useState(cage?.type  ?? 'mating')
+  const [line,     setLine]     = useState(cage?.line  ?? 'KO')
+  const [notes,    setNotes]    = useState(cage?.notes ?? '')
+  const [maleId,   setMaleId]   = useState(null)
+  const [femaleId, setFemaleId] = useState(null)
+  const [maleQ,    setMaleQ]    = useState('')
+  const [femaleQ,  setFemaleQ]  = useState('')
+
+  const isMating = type === 'mating'
+  const isMatingEdit = cage?.type === 'mating'  // 수정 모드에서 이미 mating cage
+
+  // 생존 상태의 수컷/암컷 필터
+  const availMales   = allMice.filter(m => m.sex==='M' && ['생존','mating중'].includes(m.status))
+  const availFemales = allMice.filter(m => m.sex==='F' && ['생존','mating중'].includes(m.status))
+
+  const filtMales   = availMales.filter(m =>
+    !maleQ || m.mid.toLowerCase().includes(maleQ.toLowerCase()) ||
+    (m.cage_num??'').toLowerCase().includes(maleQ.toLowerCase())
+  )
+  const filtFemales = availFemales.filter(m =>
+    !femaleQ || m.mid.toLowerCase().includes(femaleQ.toLowerCase()) ||
+    (m.cage_num??'').toLowerCase().includes(femaleQ.toLowerCase())
+  )
+
+  const selectedMale   = allMice.find(m => m.id === maleId)
+  const selectedFemale = allMice.find(m => m.id === femaleId)
+
+  const MiceSelector = ({ sex, query, setQuery, selectedId, setSelectedId, list }) => (
+    <div style={{border:'.5px solid var(--bd2)',borderRadius:8,overflow:'hidden'}}>
+      <div style={{padding:'6px 8px',background:'var(--bg2)',borderBottom:'.5px solid var(--bd)',fontSize:10,color:'var(--t3)',textTransform:'uppercase',letterSpacing:'.05em',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <span>{sex==='M'?'♂ 수컷':'♀ 암컷'} 선택</span>
+        {selectedId && <span style={{color:'var(--info-tx)',fontWeight:500}}>{allMice.find(m=>m.id===selectedId)?.mid} 선택됨</span>}
+      </div>
+      <div style={{padding:'6px 8px',borderBottom:'.5px solid var(--bd)'}}>
+        <input className="finput" placeholder="ID 또는 케이지 검색..." value={query} onChange={e=>setQuery(e.target.value)} style={{fontSize:11}} />
+      </div>
+      <div style={{maxHeight:140,overflowY:'auto'}}>
+        {list.length === 0
+          ? <div style={{padding:'10px 12px',fontSize:11,color:'var(--t3)'}}>검색 결과 없음</div>
+          : list.slice(0,20).map(m => (
+            <div key={m.id}
+              onClick={() => setSelectedId(selectedId===m.id ? null : m.id)}
+              style={{padding:'6px 12px',cursor:'pointer',background:selectedId===m.id?'var(--info-bg)':'',borderBottom:'.5px solid var(--bd)',display:'flex',alignItems:'center',gap:8,fontSize:11}}
+            >
+              <div style={{width:16,height:16,borderRadius:4,border:`1.5px solid ${selectedId===m.id?'var(--info-tx)':'var(--bd2)'}`,background:selectedId===m.id?'var(--info-tx)':'',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {selectedId===m.id && <i className="ti ti-check" style={{fontSize:10,color:'#fff'}}></i>}
+              </div>
+              <span className="mono" style={{fontWeight:500,color:'var(--t1)'}}>{m.mid}</span>
+              <span className={`bdg ${GC(m.genotype)}`} style={{fontSize:9}}>{m.genotype??'?'}</span>
+              <span style={{fontSize:10,color:'var(--t3)',marginLeft:'auto'}}>{m.cage_num??'미배정'}</span>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  )
+
   return (
     <Modal onClose={onClose}>
       <div className="modal-title">{cage ? `케이지 수정 — ${cage.num}` : '새 케이지 추가'}</div>
-      <div className="fgrow">
+      <div className="fgrow" style={{marginBottom: isMating && !cage ? 12 : 0}}>
         <div className="fg"><div className="flbl">케이지 번호</div><input className="finput" value={num} onChange={e=>setNum(e.target.value)} placeholder="KO-M02" /></div>
         <div className="fg"><div className="flbl">종류</div>
           <select className="finput" value={type} onChange={e=>setType(e.target.value)}>
@@ -483,10 +702,29 @@ function CageModal({ cage, onClose, onSave, onDelete }) {
         </div>
         <div className="fg"><div className="flbl">메모</div><input className="finput" value={notes} onChange={e=>setNotes(e.target.value)} /></div>
       </div>
-      <div className="fact">
+
+      {/* mating cage 신규 생성 시에만 개체 선택 */}
+      {isMating && !cage && (<>
+        <div className="divider"></div>
+        <div style={{fontSize:11,fontWeight:500,color:'var(--t1)',marginBottom:10}}>
+          <i className="ti ti-heart" style={{marginRight:6,color:'var(--info-tx)'}}></i>
+          교배 개체 선택 <span style={{fontSize:10,color:'var(--t3)',fontWeight:400}}>(선택 시 상태가 자동으로 mating중으로 변경됩니다)</span>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <MiceSelector sex="M" query={maleQ}   setQuery={setMaleQ}   selectedId={maleId}   setSelectedId={setMaleId}   list={filtMales} />
+          <MiceSelector sex="F" query={femaleQ} setQuery={setFemaleQ} selectedId={femaleId} setSelectedId={setFemaleId} list={filtFemales} />
+        </div>
+        {(maleId || femaleId) && (
+          <div style={{marginTop:10,padding:'8px 10px',background:'var(--info-bg)',borderRadius:8,fontSize:11,color:'var(--info-tx)'}}>
+            선택된 교배쌍: {maleId ? `♂ ${selectedMale?.mid}` : '♂ 미선택'} × {femaleId ? `♀ ${selectedFemale?.mid}` : '♀ 미선택'}
+          </div>
+        )}
+      </>)}
+
+      <div className="fact" style={{marginTop:14}}>
         {cage && <button className="btn btn-danger" onClick={onDelete}>삭제</button>}
         <button className="btn" onClick={onClose}>취소</button>
-        <button className="btn btn-primary" onClick={()=>onSave({num,type,line,notes})}>저장</button>
+        <button className="btn btn-primary" onClick={()=>onSave({num,type,line,notes}, maleId, femaleId)}>저장</button>
       </div>
     </Modal>
   )
