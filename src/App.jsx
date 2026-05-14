@@ -4,7 +4,7 @@ import {
   useRealtime, useCages, useMice, useLitters, useTodayTasks,
   createCage, updateCage, deleteCage,
   createMouse, updateMouse, deleteMouse, setGenotype,
-  createLitter, separateMale, weanLitter
+  createLitter, updateLitter, deleteLitter, separateMale, weanLitter
 } from './hooks/useDB'
 
 /* ── utils ── */
@@ -556,20 +556,22 @@ function LitterPage({ line, onRefetch }) {
   const { data: lits,  refetch } = useLitters(line==='ALL'?undefined:line)
   const { data: cages } = useCages()
   const { data: mice  } = useMice()
-  const [modal,  setModal]  = useState(null)   // null | 'add' | litter_id(weaning)
+  const [modal,  setModal]  = useState(null)  // null | 'add' | 'edit' | 'wean'
   const [target, setTarget] = useState(null)
   const refresh = () => { refetch(); onRefetch() }
 
   return (<div style={{display:'flex',flexDirection:'column',gap:14}}>
     <div className="sec-row">
       <div className="sec-title">Litter ({lits?.length??0})</div>
-      <button className="btn btn-primary" onClick={()=>setModal('add')}><i className="ti ti-plus"></i>Litter 등록</button>
+      <button className="btn btn-primary" onClick={()=>{ setTarget(null); setModal('add') }}>
+        <i className="ti ti-plus"></i>Litter 등록
+      </button>
     </div>
     <div className="tbl-wrap">
       <table>
         <thead><tr>
           <th>Line</th><th>Mating cage</th><th>출생일</th><th>Pup 수</th>
-          <th>Weaning 예정</th><th>D-day</th><th>상태</th><th></th>
+          <th>Weaning 예정</th><th>D-day</th><th>상태</th><th>메모</th><th></th>
         </tr></thead>
         <tbody>
           {lits?.map(l => {
@@ -584,19 +586,39 @@ function LitterPage({ line, onRefetch }) {
                 <td>{l.pup_count}</td>
                 <td><span className={`bdg ${wd<0?'b-alive':wd<=3?'b-het':'b-unk'}`}>{fmtD(wDate)}</span></td>
                 <td style={{color:wd<0?'var(--suc-tx)':wd<=3?'var(--warn-tx)':'var(--t3)',fontFamily:'monospace',fontSize:10}}>
-                  {wd<0?'D'+wd:'D+'+wd}
+                  {wd < 0 ? 'D'+wd : 'D+'+wd}
                 </td>
                 <td>{l.weaned
                   ? <span className="bdg b-alive">완료</span>
                   : <span className="bdg b-het">진행 중</span>}
                 </td>
+                <td style={{fontSize:10,color:'var(--t3)',maxWidth:100,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                  {l.notes||'—'}
+                </td>
                 <td>
-                  {!l.weaned && (
-                    <button className="btn btn-primary btn-sm"
-                      onClick={()=>{ setTarget({litter:l, cage:cg}); setModal('wean') }}>
-                      <i className="ti ti-scissors"></i>Weaning
+                  <div style={{display:'flex',gap:4}}>
+                    {/* 수정 버튼 — weaned 여부와 관계없이 항상 표시 */}
+                    <button className="btn btn-sm" title="수정"
+                      onClick={()=>{ setTarget({litter:l, cage:cg}); setModal('edit') }}>
+                      <i className="ti ti-edit"></i>
                     </button>
-                  )}
+                    {/* Weaning 버튼 — 미완료일 때만 */}
+                    {!l.weaned && (
+                      <button className="btn btn-primary btn-sm"
+                        onClick={()=>{ setTarget({litter:l, cage:cg}); setModal('wean') }}>
+                        <i className="ti ti-scissors"></i>Weaning
+                      </button>
+                    )}
+                    {/* 삭제 버튼 */}
+                    <button className="btn btn-danger btn-sm" title="삭제"
+                      onClick={async () => {
+                        if (!confirm(`Litter를 삭제하시겠습니까?\n출생일: ${fmtD(l.birth_date)} / ${l.pup_count}마리\n⚠️ 이미 등록된 개체는 삭제되지 않습니다.`)) return
+                        await deleteLitter(l.id)
+                        refresh()
+                      }}>
+                      <i className="ti ti-trash"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             )
@@ -605,9 +627,19 @@ function LitterPage({ line, onRefetch }) {
       </table>
     </div>
 
-    {modal==='add' && (
-      <LitterModal cages={cages?.filter(c=>c.type==='mating')??[]} onClose={()=>setModal(null)}
-        onSave={async d => { await createLitter(d); setModal(null); refresh() }}
+    {(modal==='add' || modal==='edit') && (
+      <LitterModal
+        litter={modal==='edit' ? target?.litter : null}
+        cages={cages?.filter(c=>c.type==='mating')??[]}
+        onClose={()=>setModal(null)}
+        onSave={async d => {
+          if (modal==='edit' && target?.litter) {
+            await updateLitter(target.litter.id, d)
+          } else {
+            await createLitter(d)
+          }
+          setModal(null); refresh()
+        }}
       />
     )}
     {modal==='wean' && target && (
@@ -994,19 +1026,24 @@ function WeanModal({ cage, litter, mice, onClose, onSave }) {
   )
 }
 
-function LitterModal({ cages, onClose, onSave }) {
-  const [cageId, setCageId] = useState(cages[0]?.id ?? '')
-  const [bd, setBd]     = useState('')
-  const [pc, setPc]     = useState(0)
-  const [notes, setNotes] = useState('')
+function LitterModal({ litter, cages, onClose, onSave }) {
+  const isEdit = !!litter
+  const [cageId, setCageId] = useState(litter?.cage_id ?? cages[0]?.id ?? '')
+  const [bd,     setBd]     = useState(litter?.birth_date ?? '')
+  const [pc,     setPc]     = useState(litter?.pup_count  ?? 0)
+  const [notes,  setNotes]  = useState(litter?.notes      ?? '')
   const wean = bd ? addDays(bd, 21) : ''
-  const line = cages.find(c=>c.id===cageId)?.line ?? 'KO'
+  const line = cages.find(c=>c.id===cageId)?.line ?? litter?.line ?? 'KO'
   return (
     <Modal onClose={onClose}>
-      <div className="modal-title">Litter 등록</div>
+      <div className="modal-title">{isEdit ? 'Litter 수정' : 'Litter 등록'}</div>
       <div className="fg"><div className="flbl">Mating cage</div>
         <select className="finput" value={cageId} onChange={e=>setCageId(e.target.value)}>
           {cages.map(c=><option key={c.id} value={c.id}>{c.num} ({c.line})</option>)}
+          {/* 수정 모드에서 현재 cage가 목록에 없을 경우 대비 */}
+          {isEdit && !cages.find(c=>c.id===litter.cage_id) && (
+            <option value={litter.cage_id}>{litter.cage?.num ?? litter.cage_id} (현재)</option>
+          )}
         </select>
       </div>
       <div className="fgrow">
@@ -1015,9 +1052,18 @@ function LitterModal({ cages, onClose, onSave }) {
       </div>
       {wean && <div className="fhint">Weaning 예정: {fmtD(wean)} (D+21)</div>}
       <div className="fg"><div className="flbl">메모</div><input className="finput" value={notes} onChange={e=>setNotes(e.target.value)} /></div>
+      {isEdit && litter.weaned && (
+        <div style={{padding:'7px 10px',background:'var(--warn-bg)',borderRadius:8,fontSize:11,color:'var(--warn-tx)',marginTop:4}}>
+          <i className="ti ti-alert-triangle" style={{marginRight:5}}></i>
+          이미 Weaning 완료된 Litter입니다. 출생일·Pup 수 수정 시 등록된 개체 정보와 불일치할 수 있습니다.
+        </div>
+      )}
       <div className="fact">
         <button className="btn" onClick={onClose}>취소</button>
-        <button className="btn btn-primary" onClick={()=>onSave({cage_id:cageId,line,birth_date:bd,pup_count:pc,weaned:false,notes})}>저장</button>
+        <button className="btn btn-primary" onClick={()=>onSave({
+          cage_id: cageId, line, birth_date: bd, pup_count: pc, notes,
+          ...(isEdit ? {} : {weaned: false})  // 신규 등록 시에만 weaned:false 설정
+        })}>저장</button>
       </div>
     </Modal>
   )
