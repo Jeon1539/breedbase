@@ -67,6 +67,8 @@ export function useLitters(line) {
   }, [line])
 }
 export const createLitter = (d) => supabase.from('litters').insert(d).select().single()
+export const updateLitter = (id, d) => supabase.from('litters').update(d).eq('id', id).select().single()
+export const deleteLitter = (id) => supabase.from('litters').delete().eq('id', id)
 
 /* ─── Today tasks ─── */
 export function useTodayTasks() {
